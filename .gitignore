@@ -22,6 +22,9 @@ models/
 # Dataset split outputs
 data/raw_jobs.jsonl
 
+# Unsloth JIT compilation cache
+unsloth_compiled_cache/
+
 # Evaluation and benchmark results
 eval/results.json
 benchmarks/results/
