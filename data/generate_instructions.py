@@ -99,7 +99,6 @@ def generate_batch(client, model: str, seed_prompts: list[str], temperature: flo
                 max_tokens=512,
             )
             text = resp.choices[0].message.content.strip()
-            # Try parsing JSON from response
             record = try_parse_json(text)
             if record and "instruction" in record and "output" in record:
                 results.append(record)
@@ -113,19 +112,16 @@ def generate_batch(client, model: str, seed_prompts: list[str], temperature: flo
 
 def try_parse_json(text: str) -> dict | None:
     import re
-    # Try direct parse
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    # Try extracting from markdown code block
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if m:
         try:
             return json.loads(m.group(1))
         except json.JSONDecodeError:
             pass
-    # Try extracting first JSON object
     m = re.search(r"\{[^{}]*\}", text, re.DOTALL)
     if m:
         try:
@@ -136,7 +132,6 @@ def try_parse_json(text: str) -> dict | None:
 
 
 def build_seed_prompts(count: int, languages: list[str], scripts: list[str]) -> list[str]:
-    """Build a diverse set of seed prompts for generation."""
     topics = [
         "machine learning", "artificial intelligence", "cloud computing",
         "climate change", "Indian economy", "cricket", "Bollywood",
@@ -147,7 +142,7 @@ def build_seed_prompts(count: int, languages: list[str], scripts: list[str]) -> 
     for lang in languages:
         for script in scripts:
             if lang == "hi" and script == "roman":
-                continue  # Hindi in Roman script is Hinglish or transliterated
+                continue
             combos.append((lang, script))
 
     prompts = []
@@ -156,9 +151,7 @@ def build_seed_prompts(count: int, languages: list[str], scripts: list[str]) -> 
         lang, script = combos[i % len(combos)]
         task = task_types[i % len(task_types)]
         topic = topics[i % len(topics)]
-        
         lang_label = {"hi": "Hindi (Devanagari)", "en": "English", "hinglish": "Hinglish (Roman)"}.get(lang, lang)
-        
         prompt = (
             f"Generate a {lang_label} instruction-output pair. "
             f"Task type: {task}. "
@@ -168,7 +161,6 @@ def build_seed_prompts(count: int, languages: list[str], scripts: list[str]) -> 
             f"Output as JSON with keys 'instruction' and 'output'."
         )
         prompts.append(prompt)
-    
     return prompts
 
 
@@ -190,13 +182,12 @@ def main():
 
     print(f"Connecting to NVIDIA NIM...")
     client = build_client()
-    
+
     print(f"Building {args.count} seed prompts...")
     seed_prompts = build_seed_prompts(args.count, args.languages, args.scripts)
-    
+
     print(f"Generating {args.count} records (batch_size={args.batch_size})...")
     all_records = []
-    # Open file in append mode so progress is saved incrementally
     with open(args.output, "a", encoding="utf-8") as f:
         for i in range(0, len(seed_prompts), args.batch_size):
             batch = seed_prompts[i : i + args.batch_size]
@@ -206,16 +197,14 @@ def main():
                 f.flush()
             all_records.extend(records)
             print(f"  Progress: {len(all_records)}/{args.count} records")
-            
             if len(all_records) >= args.count:
                 break
-    
-    # Trim to exact count (rewrite file with exact count)
+
     all_records = all_records[:args.count]
     with open(args.output, "w", encoding="utf-8") as f:
         for rec in all_records:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    
+
     print(f"\nDone! {len(all_records)} records saved to {args.output}")
     lang_counts = {}
     for rec in all_records:
