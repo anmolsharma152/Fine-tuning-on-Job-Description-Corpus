@@ -28,8 +28,8 @@ except ImportError:
     VLLM_AVAILABLE = False
 
 app = FastAPI(
-    title="Sarvam-1 Job Description Inference API",
-    description="FastAPI endpoint for streaming role classification and salary bucket predictions.",
+    title="Indic Instructor API",
+    description="FastAPI endpoint for instruction-following inference with Sarvam-1 (Hinglish/Hindi/English).",
     version="1.0.0"
 )
 
@@ -43,20 +43,11 @@ vllm_engine = None
 args = None
 
 def format_chatml_prompt(prompt: str) -> str:
-    """Format raw job description into the expected ChatML format if needed."""
+    """Wrap raw instruction in ChatML format if not already."""
     if "<|im_start|>" in prompt:
         return prompt
-        
-    system_prompt = "You are a professional HR assistant specializing in parsing and classifying Indian job postings."
-    user_prompt = (
-        f"Analyze the following job description. Classify it into a Role Category "
-        f"(Software Engineering, Data Science, Product Management, Marketing, HR, Finance) "
-        f"and determine its Salary Bucket (Entry, Mid, Senior, Executive).\n\n"
-        f"Job Description:\n{prompt}"
-    )
     return (
-        f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
-        f"<|im_start|>user\n{user_prompt}<|im_end|>\n"
+        f"<|im_start|>user\n{prompt}<|im_end|>\n"
         f"<|im_start|>assistant\n"
     )
 

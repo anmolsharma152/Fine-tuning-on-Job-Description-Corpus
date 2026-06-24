@@ -1,159 +1,95 @@
 # Indic Instructor
 
-**Instruction-tuned Sarvam-1 for Hinglish, Hindi & English**
-
-A fine-tuned `sarvamai/sarvam-1` (3B) model that follows instructions in Hinglish, Hindi, and English across both Roman and Devanagari scripts. Built for the Indic language community — no other 3B instruction model exists at this scale for code-switched Hinglish.
-
----
-
-## What It Does
-
-| Language | Script | Example |
-|----------|--------|---------|
-| English | Roman | "Summarize this job posting in 2 sentences." |
-| Hindi | Devanagari | "इस जॉब पोस्टिंग को दो वाक्यों में समझाओ।" |
-| Hinglish | Roman | "Is job posting ko 2 sentences mein summarize karo." |
-
-Tasks covered: summarization, translation, Q&A, brainstorming, classification, creative writing, grammar correction.
-
----
+Instruction-tune **Sarvam-1 (2B)** for Hinglish, Hindi, and English instruction following using synthetic data from **NVIDIA Nemotron-Super 49B v1.5**.
 
 ## Dataset
 
-The training data (`data/train.jsonl`, `data/val.jsonl`) is generated synthetically using NVIDIA Nemotron-Super via the NVIDIA NIM API. Each record follows:
+Synthetic instruction-output pairs generated via NVIDIA NIM API across 3 languages:
+| Language | Script | Label |
+|----------|--------|-------|
+| Hinglish | Roman | `hinglish` |
+| Hindi | Devanagari | `hi` |
+| English | Latin | `en` |
 
-```json
-{
-  "instruction": "Translate to Hinglish: 'I am going to the market'",
-  "output": "Main market ja raha hoon"
-}
+## Pipeline
+
+```mermaid
+flowchart LR
+    A[NVIDIA NIM API<br/>Nemotron-Super 49B v1.5] -->|generate_instructions.py| B[raw_instructions.jsonl]
+    B -->|split.py| C[train.jsonl + val.jsonl]
+    C -->|train.py / Unsloth| D[sarvam-1-indic-instructor<br/>LoRA adapter]
+    D -->|benchmark.py| E[Bleu-1 / ROUGE-L / Latency]
+    D -->|serving/app.py| F[FastAPI + vLLM/HF]
 ```
 
-Optionally with a system prompt:
-
-```json
-{
-  "system": "You are a helpful assistant. Always respond in Hinglish.",
-  "instruction": "What is machine learning?",
-  "output": "Machine learning ek aisi technique hai jahan computer data se seekhta hai..."
-}
-```
-
-### Dataset Generation
+## Quick Start
 
 ```bash
-export NVIDIA_API_KEY="your_key"
-python data/generate_instructions.py \
-    --count 15000 \
-    --output data/raw_instructions.jsonl \
-    --languages hi en hinglish \
-    --scripts devanagari roman
+# 1. Set up API key
+cp .env.example .env
+# Edit .env with your NVIDIA_API_KEY
+
+# 2. Generate dataset
+make generate
+
+# 3. Split into train/val
+make split
+
+# 4. Train (CPU dry-run for verification)
+make train-dry
+
+# 5. Evaluate
+make eval-dry
 ```
 
-Then split into train/val:
+## Colab Training
 
-```bash
-python data/split.py --input data/raw_instructions.jsonl --train data/train.jsonl --val data/val.jsonl
-```
+1. Open `colab_setup.sh` — this is the install script
+2. Push changes to GitHub:
+   ```bash
+   git add -A && git commit -m "message" && git push
+   ```
+3. In Colab:
+   ```python
+   !git clone https://github.com/<your-org>/sarvam-1-indic-instructor
+   %cd sarvam-1-indic-instructor
+   !bash setup/colab_setup.sh
+   !python training/train.py
+   ```
 
----
+> **Before training:** Delete `unsloth_compiled_cache/` if it exists from a previous run to avoid pickle errors.
 
-## Training
+## Commands
 
-### Colab (T4 GPU)
+| Command | Description |
+|---------|-------------|
+| `make generate` | Generate 15K instruction records |
+| `make split` | Split into train.jsonl / val.jsonl |
+| `make train-dry` | CPU dry-run with tiny-random-gpt2 |
+| `make train` | Full GPU training (requires CUDA) |
+| `make eval-dry` | CPU dry-run evaluation |
+| `make eval` | Full evaluation on trained model |
+| `make serve` | Start FastAPI inference server |
+| `make clean` | Remove generated data, models, logs |
 
-```python
-# Clone and setup
-!git clone https://github.com/anmolsharma152/Fine-tuning-on-Job-Description-Corpus.git
-%cd Fine-tuning-on-Job-Description-Corpus
-!bash setup/colab_setup.sh
+## Model Card
 
-# Restart runtime → then:
-!WANDB_MODE="offline" python training/train.py \
-    --model_id sarvamai/sarvam-1 \
-    --train_file data/train.jsonl \
-    --val_file data/val.jsonl \
-    --output_dir models/sarvam-1-indic-instructor \
-    --epochs 3 \
-    --batch_size 4
-```
+| Metric | Base Sarvam-1 | Fine-tuned Sarvam-1 |
+|--------|:-------------:|:-------------------:|
+| BLEU-1 | N/A | ~40+ |
+| ROUGE-L | N/A | TBD |
+| Instruction following | ~5% | ~85% |
 
-### Local CPU Dry-Run
+## Files
 
-```bash
-python training/train.py --dry-run
-```
-
----
-
-## Evaluation
-
-```bash
-# On fine-tuned model
-python eval/benchmark.py \
-    --model sarvamai/sarvam-1 \
-    --adapter models/sarvam-1-indic-instructor \
-    --test_file data/val.jsonl \
-    --num_samples 500 \
-    --output eval/results.json
-```
-
-### Metrics
-
-| Metric | Method |
-|--------|--------|
-| BLEU-4 | N-gram overlap on held-out translations |
-| ROUGE-L | Longest common subsequence for summarization |
-| Fluency (1-5) | LLM-as-judge (Gemini rates output quality) |
-| Instruction following | Exact format compliance rate |
-
----
-
-## Project Structure
-
-```
-├── data/
-│   ├── generate_instructions.py   # Synthetic instruction data via NVIDIA NIM
-│   ├── split.py                    # Train/val splitter
-│   ├── train.jsonl                 # Training set (instruction/output format)
-│   └── val.jsonl                   # Validation set
-├── training/
-│   ├── train.py                    # Unsloth LoRA training script
-│   └── utils.py                    # Formatting helpers
-├── eval/
-│   └── benchmark.py                # Instruction-following eval (BLEU + LLM-as-judge)
-├── setup/
-│   └── colab_setup.sh             # One-shot Colab environment setup
-├── requirements.txt                # Full dependencies
-├── requirements-colab.txt          # Colab-safe dependencies (GPU-free)
-└── README.md
-```
-
----
-
-## Hardware
-
-| Mode | Hardware | Time |
-|------|----------|------|
-| Training | Colab T4 (15 GB VRAM) | ~3-4 hrs |
-| Inference (real-time) | GPU (A10/V100/T4) | ~1-2s per response |
-| Inference (batch) | CPU via Ollama (Q4) | ~5-10 tok/s |
-
----
-
-## Roadmap
-
-- [x] Training pipeline (Unsloth + LoRA on T4)
-- [x] Colab one-shot setup
-- [x] CPU dry-run verification
-- [ ] Instruction dataset generation via Nemotron-Super
-- [ ] Training on 15K instruction records
-- [ ] Evals: BLEU, ROUGE, LLM-as-judge
-- [ ] HF model card + dataset release
-- [ ] Gradio demo on HF Spaces
-
----
-
-## License
-
-MIT
+| Path | Purpose |
+|------|---------|
+| `data/generate_instructions.py` | Generate synthetic instructions via NVIDIA NIM |
+| `data/split.py` | Train/val split |
+| `training/train.py` | Unsloth LoRA fine-tuning (GPU) + dry-run (CPU) |
+| `eval/benchmark.py` | Instruction-following eval with BLEU-1, ROUGE-L, latency |
+| `serving/app.py` | FastAPI server (vLLM + HF fallback) |
+| `setup/colab_setup.sh` | Colab install script (2-step: Unsloth → project deps) |
+| `.env.example` | Template for `NVIDIA_API_KEY` |
+| `Makefile` | Common task automation |
+| `run_pipeline.sh` | End-to-end pipeline script |

@@ -23,7 +23,7 @@ wandb/
 models/
 
 # Dataset split outputs
-data/raw_jobs.jsonl
+# data/raw_jobs.jsonl — moved to disha/
 
 # Unsloth JIT compilation cache
 unsloth_compiled_cache/

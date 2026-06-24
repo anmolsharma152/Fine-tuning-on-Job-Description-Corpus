@@ -5,6 +5,7 @@ Splits raw instruction JSONL into train/val sets.
 """
 
 import json
+import os
 import argparse
 import random
 
@@ -43,5 +44,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import os
     main()

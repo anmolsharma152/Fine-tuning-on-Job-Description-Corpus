@@ -19,6 +19,16 @@ import argparse
 import time
 from openai import OpenAI
 
+# Load .env if present
+_env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+if os.path.exists(_env_path):
+    with open(_env_path) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _v = _line.split("=", 1)
+                os.environ.setdefault(_k.strip(), _v.strip().strip("\"'"))
+
 # ─── Seed instructions for each language ─────────────────────────────────────
 
 SEED_TASKS = {
@@ -78,6 +88,7 @@ def generate_batch(client, model: str, seed_prompts: list[str], temperature: flo
                             "You are a dataset generator. Generate one instruction-output pair "
                             "in the specified language and script. "
                             "Output ONLY valid JSON with keys 'instruction' and 'output'. "
+                            "The 'output' value MUST be a plain string (text only), not a JSON object or array. "
                             "Use Hinglish (Hindi+English mix in Roman script), Hindi (Devanagari), "
                             "or English as requested."
                         ),
@@ -153,6 +164,7 @@ def build_seed_prompts(count: int, languages: list[str], scripts: list[str]) -> 
             f"Task type: {task}. "
             f"Topic: {topic}. "
             f"Make the instruction realistic and natural. "
+            f"The 'output' field must be a plain text string (NOT a JSON object or list). "
             f"Output as JSON with keys 'instruction' and 'output'."
         )
         prompts.append(prompt)
@@ -168,7 +180,7 @@ def main():
                         choices=["hinglish", "hi", "en"], help="Languages to generate")
     parser.add_argument("--scripts", nargs="+", default=["roman", "devanagari"],
                         choices=["roman", "devanagari"], help="Scripts to use")
-    parser.add_argument("--model", type=str, default="nvidia/nemotron-super-49b-v1",
+    parser.add_argument("--model", type=str, default="nvidia/llama-3.3-nemotron-super-49b-v1",
                         help="NVIDIA NIM model ID")
     parser.add_argument("--batch_size", type=int, default=10, help="Records per API call")
     parser.add_argument("--temperature", type=float, default=0.8, help="Generation temperature")
@@ -184,19 +196,22 @@ def main():
     
     print(f"Generating {args.count} records (batch_size={args.batch_size})...")
     all_records = []
-    for i in range(0, len(seed_prompts), args.batch_size):
-        batch = seed_prompts[i : i + args.batch_size]
-        records = generate_batch(client, args.model, batch, args.temperature)
-        all_records.extend(records)
-        print(f"  Progress: {len(all_records)}/{args.count} records")
-        
-        if len(all_records) >= args.count:
-            break
+    # Open file in append mode so progress is saved incrementally
+    with open(args.output, "a", encoding="utf-8") as f:
+        for i in range(0, len(seed_prompts), args.batch_size):
+            batch = seed_prompts[i : i + args.batch_size]
+            records = generate_batch(client, args.model, batch, args.temperature)
+            for rec in records:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                f.flush()
+            all_records.extend(records)
+            print(f"  Progress: {len(all_records)}/{args.count} records")
+            
+            if len(all_records) >= args.count:
+                break
     
-    # Trim to exact count
+    # Trim to exact count (rewrite file with exact count)
     all_records = all_records[:args.count]
-    
-    # Save
     with open(args.output, "w", encoding="utf-8") as f:
         for rec in all_records:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
