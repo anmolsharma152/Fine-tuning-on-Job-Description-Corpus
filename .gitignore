@@ -22,8 +22,9 @@ wandb/
 # Local model checkpoint saves
 models/
 
-# Dataset split outputs
-# data/raw_jobs.jsonl — moved to disha/
+# Generated dataset files
+data/test_*.jsonl
+data/raw_instructions.jsonl
 
 # Unsloth JIT compilation cache
 unsloth_compiled_cache/
