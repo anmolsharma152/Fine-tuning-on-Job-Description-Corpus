@@ -17,6 +17,7 @@ import os
 import json
 import argparse
 import time
+import concurrent.futures
 from openai import OpenAI
 
 # Load .env if present
@@ -75,38 +76,48 @@ def build_client():
     )
 
 
-def generate_batch(client, model: str, seed_prompts: list[str], temperature: float = 0.8) -> list[dict]:
+def fetch_single_record(client, model: str, seed: str, temperature: float) -> dict | None:
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a dataset generator. Generate one instruction-output pair "
+                        "in the specified language and script. "
+                        "Output ONLY valid JSON with keys 'instruction' and 'output'. "
+                        "The 'output' value MUST be a plain string (text only), not a JSON object or array. "
+                        "Use Hinglish (Hindi+English mix in Roman script), Hindi (Devanagari), "
+                        "or English as requested."
+                    ),
+                },
+                {"role": "user", "content": seed},
+            ],
+            temperature=temperature,
+            max_tokens=512,
+        )
+        text = resp.choices[0].message.content.strip()
+        record = try_parse_json(text)
+        if record and "instruction" in record and "output" in record:
+            return record
+        else:
+            print(f"  [warn] Failed to parse: {text[:80]}...")
+            return None
+    except Exception as e:
+        print(f"  [error] {e}")
+        time.sleep(2)
+        return None
+
+
+def generate_batch(client, model: str, seed_prompts: list[str], temperature: float = 0.8, workers: int = 10) -> list[dict]:
     results = []
-    for seed in seed_prompts:
-        try:
-            resp = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a dataset generator. Generate one instruction-output pair "
-                            "in the specified language and script. "
-                            "Output ONLY valid JSON with keys 'instruction' and 'output'. "
-                            "The 'output' value MUST be a plain string (text only), not a JSON object or array. "
-                            "Use Hinglish (Hindi+English mix in Roman script), Hindi (Devanagari), "
-                            "or English as requested."
-                        ),
-                    },
-                    {"role": "user", "content": seed},
-                ],
-                temperature=temperature,
-                max_tokens=512,
-            )
-            text = resp.choices[0].message.content.strip()
-            record = try_parse_json(text)
-            if record and "instruction" in record and "output" in record:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(fetch_single_record, client, model, seed, temperature): seed for seed in seed_prompts}
+        for future in concurrent.futures.as_completed(futures):
+            record = future.result()
+            if record:
                 results.append(record)
-            else:
-                print(f"  [warn] Failed to parse: {text[:80]}...")
-        except Exception as e:
-            print(f"  [error] {e}")
-            time.sleep(2)
     return results
 
 
@@ -174,8 +185,9 @@ def main():
                         choices=["roman", "devanagari"], help="Scripts to use")
     parser.add_argument("--model", type=str, default="nvidia/llama-3.3-nemotron-super-49b-v1",
                         help="NVIDIA NIM model ID")
-    parser.add_argument("--batch_size", type=int, default=10, help="Records per API call")
+    parser.add_argument("--batch_size", type=int, default=10, help="Records per batch")
     parser.add_argument("--temperature", type=float, default=0.8, help="Generation temperature")
+    parser.add_argument("--workers", type=int, default=10, help="Concurrent threads for API calls")
     args = parser.parse_args()
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
@@ -191,7 +203,7 @@ def main():
     with open(args.output, "a", encoding="utf-8") as f:
         for i in range(0, len(seed_prompts), args.batch_size):
             batch = seed_prompts[i : i + args.batch_size]
-            records = generate_batch(client, args.model, batch, args.temperature)
+            records = generate_batch(client, args.model, batch, args.temperature, args.workers)
             for rec in records:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 f.flush()
