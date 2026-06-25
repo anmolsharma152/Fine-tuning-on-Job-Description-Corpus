@@ -23,7 +23,6 @@ wandb/
 models/
 
 # Generated dataset files
-data/test_*.jsonl
 data/raw_instructions.jsonl
 
 # Unsloth JIT compilation cache
